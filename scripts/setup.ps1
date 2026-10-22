@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:UV_CACHE_DIR = Join-Path $root ".uv-cache"
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $root ".uv-python"
