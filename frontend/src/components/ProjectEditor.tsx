@@ -48,7 +48,7 @@ function statusText(status: string) {
 function confidenceLabel(value: number) {
   if (value >= 0.72) return "较高";
   if (value >= 0.55) return "中等";
-  return "待确认";
+  return "较低";
 }
 
 function parseTimecode(value: string): number | null {
@@ -139,6 +139,7 @@ export default function ProjectEditor({ projectId }: Props) {
   const draggingPoint = useRef<number | null>(null);
   const rallyListRef = useRef<HTMLDivElement>(null);
   const rallyRowRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const pendingDownloadsRef = useRef<Set<string>>(new Set());
   const inspectorRef = useRef<HTMLDivElement>(null);
   const rallyLogRef = useRef<HTMLElement>(null);
 
@@ -200,6 +201,30 @@ export default function ProjectEditor({ projectId }: Props) {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    const pending = pendingDownloadsRef.current;
+    if (pending.size === 0) return;
+
+    for (const item of exports) {
+      if (!pending.has(item.id)) continue;
+      if (item.status === "failed") {
+        pending.delete(item.id);
+        continue;
+      }
+      if (item.status !== "ready") continue;
+
+      pending.delete(item.id);
+      const link = document.createElement("a");
+      link.href = `/api/exports/${item.id}/file`;
+      link.download = item.kind === "full" ? "完整比赛.mp4" : "精彩集锦.mp4";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setNotice(item.kind === "full" ? "完整比赛导出完成，已开始下载" : "精彩集锦导出完成，已开始下载");
+    }
+  }, [exports]);
+
   const runMutation = async (operation: () => Promise<Project>, success?: string) => {
     setBusy(true);
     setError("");
@@ -229,6 +254,15 @@ export default function ProjectEditor({ projectId }: Props) {
   const invalidRallyCount = project
     ? project.timeline.filter((item) => !item.is_valid || item.is_let).length
     : 0;
+
+  const latestExports = useMemo(() => {
+    const seenKinds = new Set<ExportRecord["kind"]>();
+    return exports.filter((item) => {
+      if (seenKinds.has(item.kind)) return false;
+      seenKinds.add(item.kind);
+      return true;
+    });
+  }, [exports]);
 
   useLayoutEffect(() => {
     const inspector = inspectorRef.current;
@@ -400,7 +434,8 @@ export default function ProjectEditor({ projectId }: Props) {
         kind,
         kind === "highlights" ? [...selectedForExport] : undefined,
       )
-      .then(async () => {
+      .then(async (record) => {
+        pendingDownloadsRef.current.add(record.id);
         setNotice(kind === "full" ? "完整视频已进入导出队列" : "集锦已进入导出队列");
         await refreshExports();
       })
@@ -920,47 +955,67 @@ export default function ProjectEditor({ projectId }: Props) {
               </div>
               <div className="export-buttons">
                 <button
-                  className="secondary-button"
+                  className="export-action-button"
                   disabled={busy || project.unresolved_count > 0 || selectedForExport.size === 0}
                   onClick={() => startExport("highlights")}
                 >
                   <Download size={16} /> 导出精彩集锦
                 </button>
                 <button
-                  className="primary-button"
+                  className="export-action-button"
                   disabled={busy || project.unresolved_count > 0}
                   onClick={() => startExport("full")}
                 >
-                  <Film size={16} /> 导出完整比赛
+                  <Download size={16} /> 导出完整比赛
                 </button>
               </div>
               <div className="export-jobs">
-                {exports.length === 0 ? (
+                {latestExports.length === 0 ? (
                   <div className="export-empty">尚无导出任务</div>
                 ) : (
-                  exports.slice(0, 4).map((item) => (
-                    <div className="export-job" key={item.id}>
-                      <div>
-                        <strong>{item.kind === "full" ? "完整比赛" : "精彩集锦"}</strong>
-                        <span>
-                          {item.status === "ready"
-                            ? "已完成"
-                            : item.status === "failed"
-                              ? item.error || "失败"
-                              : `渲染中 ${Math.round(item.progress * 100)}%`}
-                        </span>
+                  latestExports.map((item) => {
+                    const failureReason = item.error || "导出任务失败";
+                    const retryLabel =
+                      item.kind === "full" ? "重新导出完整比赛" : "重新导出精彩集锦";
+                    const tooltipId = `export-error-${item.id}`;
+                    return (
+                      <div className="export-job" key={item.id}>
+                        <div>
+                          <strong>{item.kind === "full" ? "完整比赛" : "精彩集锦"}</strong>
+                          <span className="export-job-status">
+                            {item.status === "ready"
+                              ? "已完成"
+                              : item.status === "failed"
+                                ? failureReason
+                                : `渲染中 ${Math.round(item.progress * 100)}%`}
+                          </span>
+                        </div>
+                        {item.status === "ready" ? (
+                          <a href={`/api/exports/${item.id}/file`} className="download-link">
+                            <Download size={15} /> 下载
+                          </a>
+                        ) : item.status === "failed" ? (
+                          <span
+                            className="export-error-indicator"
+                            role="img"
+                            tabIndex={0}
+                            aria-label={`${failureReason}。请${retryLabel}。`}
+                            aria-describedby={tooltipId}
+                            title={`${failureReason}。请${retryLabel}。`}
+                          >
+                            <AlertTriangle size={16} />
+                            <span className="export-error-tooltip" id={tooltipId} role="tooltip">
+                              <strong>导出失败</strong>
+                              <span>{failureReason}</span>
+                              <em>请{retryLabel}。</em>
+                            </span>
+                          </span>
+                        ) : (
+                          <LoaderCircle className="spin" size={16} />
+                        )}
                       </div>
-                      {item.status === "ready" ? (
-                        <a href={`/api/exports/${item.id}/file`} className="download-link">
-                          <Download size={15} /> 下载
-                        </a>
-                      ) : item.status === "failed" ? (
-                        <AlertTriangle size={16} className="danger-text" />
-                      ) : (
-                        <LoaderCircle className="spin" size={16} />
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -1016,7 +1071,11 @@ export default function ProjectEditor({ projectId }: Props) {
                       <span className={`rally-result ${!rally.is_valid || rally.is_let ? "invalid" : rally.winner?.toLowerCase() ?? "pending"}`}>
                         {!rally.is_valid || rally.is_let ? "无效" : rally.winner ? `${rally.winner} +1` : "待定"}
                       </span>
-                      <span className="rally-score">{rally.score_after.A}:{rally.score_after.B}</span>
+                      <span className="rally-score" aria-label={`本回合前 ${rally.score_before.A} 比 ${rally.score_before.B}，本回合后 ${rally.score_after.A} 比 ${rally.score_after.B}`}>
+                        <span className="rally-score-before">{rally.score_before.A}:{rally.score_before.B}</span>
+                        <span className="rally-score-arrow" aria-hidden="true">→</span>
+                        <strong className="rally-score-after">{rally.score_after.A}:{rally.score_after.B}</strong>
+                      </span>
                       {active?.id === rally.id ? (
                         <span className="live-dot" title="当前进行中" />
                       ) : (

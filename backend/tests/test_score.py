@@ -104,6 +104,20 @@ def test_user_can_reject_automatic_let_and_count_the_point():
     assert timeline[1]["auto_let"] is False
     assert timeline[1]["is_let"] is False
     assert timeline[1]["score_after"] == {"A": 1, "B": 0}
+def test_low_confidence_winner_is_resolved_but_missing_winner_remains_pending():
+    rules = ScoreRules(first_server="A", confidence_threshold=0.8)
+    timeline = derive_score_timeline(
+        rules,
+        [
+            rally("1", 0, "A", confidence=0.4, verified=False),
+            rally("2", 10, None, confidence=0.2, verified=False),
+        ],
+    )
+    assert timeline[0]["unresolved"] is False
+    assert timeline[0]["score_after"] == {"A": 1, "B": 0}
+    assert timeline[1]["unresolved"] is True
+
+
 def test_invalid_rally_does_not_change_score_or_service_state():
     timeline = derive_score_timeline(
         ScoreRules(first_server="A", confidence_threshold=0.1),

@@ -8,10 +8,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import FRONTEND_DIST, PROJECTS_DIR
 from .db import connection, init_db, utc_now
@@ -54,6 +57,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="羽球飞扬", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def handle_http_exception(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 400 and exc.detail in {
+        "There was an error parsing the body",
+        "Invalid multipart data.",
+    }:
+
+        exc.detail = "上传文件解析失败。请确认数据盘有足够剩余空间，并重新上传视频。"
+    return await http_exception_handler(request, exc)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

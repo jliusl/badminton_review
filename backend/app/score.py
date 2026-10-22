@@ -79,7 +79,6 @@ def derive_score_timeline(rules: ScoreRules, rallies: list[RallyInput]) -> list[
         unresolved = False if not rally.is_valid else (
             (winner is None and not effective_let)
             or (auto_let and not rally.let_confirmed)
-            or (not rally.verified and rally.confidence < rules.confidence_threshold)
         )
 
         next_valid_start = next(
