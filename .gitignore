@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.uv-cache/
+.uv-python/
+library/*
+!library/.gitkeep
+sample-*.jpg
+*.log
+.env
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
